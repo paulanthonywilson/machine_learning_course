@@ -1,0 +1,211 @@
+# Gradient Descent with 1 parameter
+
+```elixir
+Mix.install([
+  {:kino_vega_lite, "~> 0.1.7"}
+])
+
+ExUnit.start()
+```
+
+## Section
+
+```elixir
+defmodule GradientDescent do
+  @moduledoc """
+  Keep this naively close to the source python and calculate in Elixir.
+
+  If appropriate I'll take the opportunity to explore Nx.
+  """
+
+  @spec cost(
+          features :: list(float()),
+          targets :: list(float()),
+          slope :: float(),
+          bias :: float()
+        ) :: float()
+  def cost(features, targets, w, b) do
+    sum_diff_squared =
+      features
+      |> Enum.zip(targets)
+      |> Enum.reduce(0, fn {x, y}, acc ->
+        y_hat = w * x + b
+        diff_squared = :math.pow(y_hat - y, 2)
+        acc + diff_squared
+      end)
+
+    sum_diff_squared / 2 / length(features)
+  end
+
+  @spec gradient(
+          features :: list(float()),
+          targets :: list(float()),
+          slope :: float(),
+          bias :: float()
+        ) :: {d_slope :: float(), d_bias :: float()}
+  def gradient(features, targets, w, b) do
+    m = length(features)
+
+    {dw, db} =
+      features
+      |> Enum.zip(targets)
+      |> Enum.map(fn {x, y} ->
+        y_dist = x * w + b - y
+        {y_dist * x, y_dist}
+      end)
+      |> Enum.reduce(fn {dw_i, db_i}, {dw, db} ->
+        {dw + dw_i, db + db_i}
+      end)
+
+    {dw / m, db / m}
+  end
+
+  @spec gradient_iteration(
+          {slope :: float(), bias :: float()},
+          features :: list(float()),
+          targets :: list(float()),
+          alpha :: float()
+        ) :: {slope :: float(), bias :: float()}
+  def gradient_iteration({w, b}, features, target, alpha) do
+    {dw, db} = gradient(features, target, w, b)
+    {w - dw * alpha, b - db * alpha}
+  end
+
+  def gradient_descent(wb, features, targets, alpha, iterations, history \\ [])
+
+  def gradient_descent({_w, _b} = wb, _features, _targets, _alpha, 0, history) do
+    {wb, history}
+  end
+
+  def gradient_descent({w, b} = wb, features, targets, alpha, iteration, history) do
+    cost = cost(features, targets, w, b)
+
+    wb
+    |> gradient_iteration(features, targets, alpha)
+    |> gradient_descent(features, targets, alpha, iteration - 1, [{w, b, cost} | history])
+  end
+end
+```
+
+```elixir
+defmodule GradientDescentTest do
+  use ExUnit.Case
+  import GradientDescent
+
+  @delta 1.0e-2
+
+  defmacrop assert_delta(lhs, rhs) do
+    quote do
+      assert_in_delta unquote(lhs), unquote(rhs), unquote(@delta)
+    end
+  end
+
+  test "cost" do
+    assert_delta(cost([0], [0], 0, 0), 0)
+    assert_delta(cost([0], [0], 0, 0), 0)
+    assert_delta(cost([1], [0], 0, 0), 0)
+    assert_delta(cost([1], [1], 0, 0), 0.5)
+    assert_delta(cost([1], [1], 1, 0), 0)
+    assert_delta(cost([1], [1], 1, 1), 0.5)
+    assert_delta(cost([1, 2, 3], [1, 2, 3], 1, 1), 0.5)
+    assert_delta(cost([1, 2, 3], [1, 2, 3], 3, 4), 33.3333333)
+    assert_delta(cost([1, 2, 3], [3, 2, 1], 3, 4), 37.3333333)
+  end
+
+  defmacrop assert_tuple_deltas(lhs, rhs) do
+    quote do
+      unquote(lhs)
+      |> Tuple.to_list()
+      |> Enum.zip(Tuple.to_list(unquote(rhs)))
+      |> Enum.each(fn {l, r} ->
+        assert_delta(l, r)
+      end)
+    end
+  end
+
+  test "gradient" do
+    assert_tuple_deltas(gradient([0], [0], 0, 0), {0, 0})
+    assert_tuple_deltas(gradient([0, 0, 0], [0, 0, 0], 0, 0), {0, 0})
+    assert_tuple_deltas(gradient([0, 1, 2], [0, 1, 2], 0, 0), {-1.66666666, -1.0})
+    assert_tuple_deltas(gradient([0, 1, 2], [0, 1, 2], 2, 1), {2.66666666, 2.0})
+    assert_tuple_deltas(gradient([0, 1, 2], [0, 1, 2], 1, 2), {2.0, 2.0})
+    assert_tuple_deltas(gradient([0, 1, 2], [2, 1, 0], 1, 2), {3.33333333, 2.0})
+    assert_tuple_deltas(gradient([0, 1, 2], [2, 1, 0], 3, 4), {8.66666666, 6.0})
+  end
+
+  test "gradient iteration" do
+    assert_tuple_deltas(gradient_iteration({0, 0}, [0], [0], 1), {0, 0})
+    assert_tuple_deltas(gradient_iteration({1, 2}, [0, 1, 2], [0, 1, 2], 1), {-1.0, 0.0})
+    assert_tuple_deltas(gradient_iteration({1, 2}, [0, 1, 2], [2, 1, 0], 1), {-2.333333, 0.0})
+    assert_tuple_deltas(gradient_iteration({1, 2}, [0, 1, 2], [0, 1, 2], 0.01), {0.98, 1.98})
+  end
+
+  test "gradient descent" do
+    assert {wb, _} = gradient_descent({0, 0}, [1.0, 2.0], [300.0, 500.0], 1.0e-2, 10_000)
+
+    assert_tuple_deltas(wb, {199.9929, 100.0016})
+  end
+end
+
+ExUnit.run()
+```
+
+```elixir
+{{b, w}, history} =
+  GradientDescent.gradient_descent({0.0, 0.0}, [1.0, 2.0], [300.0, 500.0], 0.01, 30_000)
+
+{b, w}
+```
+
+```elixir
+data =
+  history
+  |> Enum.reverse()
+  |> Enum.with_index()
+  |> Enum.map(fn {{w, b, cost}, i} ->
+    %{w: w, b: b, i: i, cost: cost}
+  end)
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: data)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "i", type: :quantitative)
+|> Vl.encode_field(:y, "w", type: :quantitative)
+```
+
+```elixir
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: data)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "i", type: :quantitative)
+|> Vl.encode_field(:y, "b", type: :quantitative)
+```
+
+```elixir
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: data)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "i", type: :quantitative)
+|> Vl.encode_field(:y, "cost", type: :quantitative)
+```
+
+```elixir
+lastn = 1000
+
+last_values =
+  data
+  |> Enum.reverse()
+  |> Enum.take(lastn)
+  |> Enum.with_index()
+  |> Enum.map(fn {row, i} -> Map.put(row, :ti, lastn - i) end)
+
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: last_values)
+|> Vl.mark(:point, clip: true)
+|> Vl.encode_field(:x, "ti", type: :quantitative, scale: [9900, 10000])
+|> Vl.encode_field(:y, "cost", type: :quantitative)
+```
