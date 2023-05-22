@@ -1,0 +1,100 @@
+# Cost function for logistic regression
+
+```elixir
+Mix.install([
+  :kino_vega_lite,
+  :nx
+])
+
+ExUnit.start()
+```
+
+## Section
+
+```elixir
+defmodule DataSet do
+  @x [[0.5, 1.5], [1, 1], [1.5, 0.5], [3, 0.5], [2, 2], [1, 2.5]]
+  @y [0, 0, 0, 1, 1, 1]
+  @xy Enum.zip(@x, @y)
+
+  def x, do: Nx.tensor(@x)
+  def y, do: Nx.tensor(@y)
+
+  def xy, do: @xy
+end
+```
+
+Plotting x and x1
+
+```elixir
+alias VegaLite, as: Vl
+
+x0x1_plot = fn y_val, mark, colour ->
+  data = for {[x0, x1], y} <- DataSet.xy(), y == y_val, do: %{x0: x0, x1: x1}
+
+  Vl.new()
+  |> Vl.data(values: data)
+  |> Vl.mark(mark, color: colour)
+  |> Vl.encode_field(:x, "x0", type: :quantitative)
+  |> Vl.encode_field(:y, "x1", type: :quantitative)
+end
+
+Vl.new(width: 600, height: 400)
+|> Vl.layers([
+  x0x1_plot.(0, :circle, :cyan),
+  x0x1_plot.(1, :square, :red)
+])
+```
+
+```elixir
+defmodule LogisticRegressionCost do
+  def cost_logistic(x, y, w, b) do
+    {m, _} = Nx.shape(x)
+    one_minus_y = y |> Nx.multiply(-1) |> Nx.add(1)
+
+    f_wb =
+      x
+      |> Nx.dot(w)
+      |> Nx.add(b)
+      |> Nx.sigmoid()
+
+    neg_cost =
+      f_wb
+      |> Nx.multiply(-1)
+      |> Nx.add(1)
+      |> Nx.log()
+      |> Nx.dot(one_minus_y)
+
+    pos_cost =
+      f_wb
+      |> Nx.log()
+      |> Nx.dot(y)
+
+    neg_cost
+    |> Nx.add(pos_cost)
+    |> Nx.multiply(-1)
+    |> Nx.divide(m)
+  end
+end
+```
+
+```elixir
+defmodule LogisticRegressionCostTest do
+  use ExUnit.Case
+
+  test "with course examples" do
+    w = Nx.tensor([1, 1])
+    b = -3
+    cost = LogisticRegressionCost.cost_logistic(DataSet.x(), DataSet.y(), w, b)
+    assert_in_delta 0.3668667864055175, Nx.to_number(cost), 1.0e-7
+  end
+
+  test "the other example" do
+    cost = LogisticRegressionCost.cost_logistic(DataSet.x(), DataSet.y(), Nx.tensor([1, 1]), -4)
+
+    assert_in_delta 0.5036808636748461, Nx.to_number(cost), 1.0e-7
+  end
+end
+
+ExUnit.run()
+```

@@ -1,0 +1,244 @@
+# Multiple Linear Regression
+
+```elixir
+Mix.install([
+  :nx,
+  :kino_vega_lite
+])
+
+ExUnit.start()
+```
+
+## Section
+
+```elixir
+defmodule MultipleLinearRegression do
+  def predict(x, w, b) do
+    x
+    |> Nx.dot(w)
+    |> Nx.add(b)
+  end
+
+  def cost(x, y, w, b) do
+    {m, _} = Nx.shape(x)
+
+    x
+    |> predict(w, b)
+    |> Nx.subtract(y)
+    |> Nx.pow(2)
+    |> Nx.sum()
+    |> Nx.divide(2 * m)
+    |> Nx.to_number()
+  end
+
+  def gradient(x, y, w, b) do
+    {m, _} = Nx.shape(x)
+    y_diff = x |> predict(w, b) |> Nx.subtract(y)
+    db = y_diff |> Nx.sum() |> Nx.divide(m)
+    dw = y_diff |> Nx.dot(x) |> Nx.divide(m)
+    {dw, db}
+  end
+
+  def gradient_descent(x, y, w, b, alpha, iteration, history \\ [])
+
+  def gradient_descent(_x, _y, w, b, _alpha, 0, history) do
+    {w, b, history}
+  end
+
+  def gradient_descent(x, y, w, b, alpha, iteration, history) do
+    j = cost(x, y, w, b)
+    {dw, db} = gradient(x, y, w, b)
+
+    new_w = Nx.subtract(w, Nx.multiply(dw, alpha))
+    new_b = Nx.subtract(b, Nx.multiply(db, alpha))
+
+    gradient_descent(x, y, new_w, new_b, alpha, iteration - 1, [j | history])
+  end
+end
+```
+
+```elixir
+defmodule MultipleLinearRegressionTest do
+  use ExUnit.Case
+  import MultipleLinearRegression
+
+  describe "predict" do
+    test "with single feature" do
+      x = Nx.tensor([[1], [2], [3]])
+
+      assert Nx.tensor([1, 2, 3]) == predict(x, Nx.tensor([1]), 0)
+      assert Nx.tensor([2, 4, 6]) == predict(x, Nx.tensor([2]), 0)
+      assert Nx.tensor([3, 5, 7]) == predict(x, Nx.tensor([2]), 1)
+    end
+
+    test "with multiple features" do
+      x = Nx.tensor([[1, -1], [2, -2], [3, -3]])
+
+      assert Nx.tensor([0, 0, 0]) == predict(x, Nx.tensor([1, 1]), 0)
+      assert Nx.tensor([3, 6, 9]) == predict(x, Nx.tensor([2, -1]), 0)
+      assert Nx.tensor([4, 7, 10]) == predict(x, Nx.tensor([2, -1]), 1)
+    end
+
+    test "with values from course" do
+      x = Nx.tensor([2104, 5, 1, 45])
+      w = Nx.tensor([0.39133535, 18.75376741, -53.36032453, -26.42131618])
+      b = 785.1811367994083
+
+      assert_in_delta 459.99999761940825, x |> predict(w, b) |> Nx.to_number(), 0.01
+    end
+  end
+
+  describe "compute cost" do
+    test "with single feature and exact cost" do
+      x = Nx.tensor([[1], [2], [3]])
+      y = Nx.tensor([[3], [5], [7]])
+
+      assert_in_delta cost(x, y, 2, 1), 0.0, 0.0001
+    end
+
+    test "with a difference" do
+      x = Nx.tensor([[1], [2]])
+      y = Nx.tensor([3, 5])
+
+      expected_cost = ((4 - 3) ** 2 + (7 - 5) ** 2) / 4
+
+      assert_in_delta expected_cost, cost(x, y, Nx.tensor([3]), 1), 0.001
+    end
+
+    test "with course values" do
+      x = Nx.tensor([[2104, 5, 1, 45], [1416, 3, 2, 40], [852, 2, 1, 35]])
+      y = Nx.tensor([460, 232, 178])
+      w = Nx.tensor([0.39133535, 18.75376741, -53.36032453, -26.42131618])
+      b = 785.1811367994083
+
+      assert_in_delta 1.5578904880036537e-12, cost(x, y, w, b), 0.00000001
+    end
+  end
+
+  describe "gradient" do
+    test "plugging in course values" do
+      x = Nx.tensor([[2104, 5, 1, 45], [1416, 3, 2, 40], [852, 2, 1, 35]])
+      y = Nx.tensor([460, 232, 178])
+      w = Nx.tensor([0.39133535, 18.75376741, -53.36032453, -26.42131618])
+      b = 785.1811367994083
+
+      assert {dw, db} = gradient(x, y, w, b)
+      assert_in_delta -1.673925169143331e-06, Nx.to_number(db), 0.001
+
+      dw
+      |> Nx.to_list()
+      |> Enum.each(fn dw_i ->
+        assert_in_delta 0, Nx.to_number(dw_i), 0.001
+      end)
+    end
+
+    test "some non zero values" do
+      x = Nx.tensor([[2104, 5, 1, 45], [1416, 3, 2, 40], [852, 2, 1, 35]])
+      y = Nx.tensor([460, 232, 178])
+      w = Nx.tensor([1, 12, -3, -5])
+      b = 200
+      assert {dw, db} = gradient(x, y, w, b)
+      assert_in_delta 1203.33333333333, Nx.to_number(db), 0.001
+
+      dw
+      |> Nx.to_list()
+      |> Enum.zip([1_952_922.6666666667, 4487.33333, 1608.0, 49726.66666])
+      |> Enum.each(fn {actual, expected} ->
+        assert_in_delta expected, actual, 0.1
+      end)
+    end
+  end
+
+  describe "gradient descent" do
+    test "with course values" do
+      x_train = Nx.tensor([[2104, 5, 1, 45], [1416, 3, 2, 40], [852, 2, 1, 35]])
+      y_train = Nx.tensor([460, 232, 178])
+
+      initial_w = List.duplicate(0, 4) |> Nx.tensor()
+      initial_b = 0.0
+      expected_b = -0.04
+      expected_w = [0.24, 0.29, -0.85, -1.58]
+      alpha = 5.0e-7
+
+      {w, b, [final_cost | _]} =
+        gradient_descent(x_train, y_train, initial_w, initial_b, alpha, 99_000)
+
+      w
+      |> Nx.to_list()
+      |> Enum.zip(expected_w)
+      |> Enum.each(fn {actual, expected} ->
+        assert_in_delta actual, expected, 0.01
+      end)
+
+      assert_in_delta expected_b, Nx.to_number(b), 0.01
+
+      assert_in_delta 563.389, final_cost, 0.01
+    end
+  end
+end
+
+ExUnit.run()
+```
+
+```elixir
+x_train = Nx.tensor([[2104, 5, 1, 45], [1416, 3, 2, 40], [852, 2, 1, 35]])
+y_train = Nx.tensor([460, 232, 178])
+
+initial_w = List.duplicate(0, 4) |> Nx.tensor()
+initial_b = 0.0
+alpha = 5.0e-7
+
+{w, b, history} =
+  MultipleLinearRegression.gradient_descent(x_train, y_train, initial_w, initial_b, alpha, 99_000)
+```
+
+```elixir
+iteration_count = length(history)
+
+cost_data =
+  history
+  |> Enum.with_index()
+  |> Enum.map(fn {cost, i} ->
+    %{cost: cost, i: iteration_count - i}
+  end)
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: cost_data)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "i", type: :quantitative)
+|> Vl.encode_field(:y, "cost", type: :quantitative)
+```
+
+```elixir
+first_costs =
+  cost_data
+  |> Enum.reverse()
+  |> Enum.take(20)
+  |> IO.inspect()
+
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: first_costs)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "i", type: :quantitative)
+|> Vl.encode_field(:y, "cost", type: :quantitative)
+```
+
+```elixir
+last_n = 1000
+
+last_costs =
+  cost_data
+  |> Enum.take(last_n)
+  |> Enum.map(fn %{i: i} = row -> Map.put(row, :n, iteration_count - i) end)
+  |> IO.inspect()
+
+Vl.new(height: 400, width: 600)
+|> Vl.data(values: last_costs)
+|> Vl.mark(:point)
+|> Vl.encode_field(:x, "n", type: :quantitative)
+|> Vl.encode_field(:y, "cost", type: :quantitative)
+```
